@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "pdf-extractor"
+version = "0.1.0"
+description = ""
+authors = ["lksprado <lks-prado@live.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+camelot-py = "^1.0.0"
+opencv-python = "^4.11.0.86"
+matplotlib = "^3.10.1"
+ghostscript = "^0.7"
+pandas = "^2.2.3"
+psycopg2-binary = "^2.9.10"
+sqlalchemy = "^2.0.38"
+unicode = "^2.9"
+unidecode = "^1.3.8"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
