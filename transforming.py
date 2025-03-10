@@ -17,10 +17,10 @@ def list_files(folder):
         files = [os.path.splitext(f)[0] for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
         return files
     except FileNotFoundError:
-        logging.info(f"A pasta '{folder}' não foi encontrada.")
+        logging.info(f"Dir '{folder}' not found.")
         return []
     except Exception as e:
-        logging.info(f"Ocorreu um erro: {e}")
+        logging.info(f"Something went wrong: {e}")
         return []
 
 def parse_main_table(file):
@@ -58,6 +58,7 @@ def parse_header(file):
         df.columns = df.columns.str.strip().str.lower().str.replace(' ','_').str.replace(':','')
         df['balance_due'] = df['balance_due'].str.replace(r'[^\d.]', '', regex=True).astype(float)
         df['invoice_id'] = df['invoice_id'].str.extract(r'(\d+)').astype(int)
+        df = df.drop(columns=['created_at'])
         return df
     except Exception as e:
         logging.error(e)
@@ -159,16 +160,16 @@ def run():
             df = parse_main_table(filename_path)
             consolidated_dfs['main'].append(df)
         else:
-            logging.warning(f"Arquivo não reconhecido: {filename_path}")
+            logging.warning(f"File not found: {filename_path}")
             continue
 
         if not df.empty:
-            logging.info(f"Arquivo {filename} processado com sucesso!")
+            logging.info(f"File {filename} processed!")
         else:
-            logging.warning(f"Erro ao processar {filename}, DataFrame vazio.")
+            logging.warning(f"Error {filename}, DataFrame is empty.")
 
         if df.empty:
-            logging.warning(f"Erro ao processar {filename}, DataFrame vazio.")
+            logging.warning(f"Error {filename}, DataFrame is empty.")
 
     # Unificar DataFrames de cada categoria
     for key in consolidated_dfs:
@@ -183,7 +184,7 @@ def run():
         if not consolidated_dfs[key].empty:
             final_df = final_df.merge(consolidated_dfs[key], on='invoice_id', how='outer', suffixes=('', f'_{key}'))
 
-    logging.info("Merge final concluído!")
+    logging.info("Final merge succesfuly!")
     
     final_df.to_csv('all_invoices.csv',sep=";",index=False)
 

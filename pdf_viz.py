@@ -36,6 +36,3 @@ table_content = [fix_header(table.df) for table in tables]
 
 # # Concatenar todas as tabelas em um único DataFrame, se houver mais de uma
 result = pd.concat(table_content, ignore_index=True) if len(table_content) > 1 else table_content[0]
-
-print(result)
-result.to_csv("teste.csv",index=False)

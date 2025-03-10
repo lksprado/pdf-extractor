@@ -1,7 +1,6 @@
 import os
 import camelot
 import pandas as pd 
-import matplotlib
 import matplotlib.pyplot as plt
 import logging 
 from unidecode import unidecode 
@@ -45,7 +44,7 @@ class PDFDataExtractor:
                 password=self.configs["password"]
                 )
             if not tables.n:
-                logging.warning(f"Nenhuma tabela encontrada no arquivo {self.file_name}")
+                logging.warning(f"No tables found {self.file_name}")
                 return pd.DataFrame()  # Retorna um DataFrame vazio
 
             table_content = [self.fix_header(page.df) if fix else page.df for page in tables]
@@ -59,7 +58,7 @@ class PDFDataExtractor:
     def add_infos(self, invoice_id_df, df):
         try:
             if invoice_id_df.empty or df.empty:
-                logging.warning(f"Dados insuficientes para adicionar informações no arquivo {self.file_name}")
+                logging.warning(f"No relevat data detected {self.file_name}")
                 return df  # Retorna o próprio DataFrame vazio
             
             invoice_id = invoice_id_df.iloc[0, 0]
@@ -73,7 +72,7 @@ class PDFDataExtractor:
 
     def save_csv(self, df, file_name):
         if df is None or df.empty:
-            logging.warning(f"{file_name}.csv não foi salvo pois o DataFrame está vazio.")
+            logging.warning(f"{file_name}.csv failt to save as df is empty.")
             return
         
         if not os.path.exists(self.csv_path):
@@ -144,10 +143,10 @@ def list_files(folder):
         files = [os.path.splitext(f)[0] for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
         return files
     except FileNotFoundError:
-        logging.info(f"A pasta '{folder}' não foi encontrada.")
+        logging.info(f"Dir '{folder}' not found.")
         return []
     except Exception as e:
-        logging.info(f"Ocorreu um erro: {e}")
+        logging.info(f"Something went wrong: {e}")
         return []
 
 if __name__ == "__main__":
@@ -157,4 +156,4 @@ if __name__ == "__main__":
     
     for file in files:
         extractor = PDFDataExtractor(file, configs=rules_dict[store]).run()
-    logging.info("Todos os arquivos foram processados")
+    logging.info("All files processed!")
