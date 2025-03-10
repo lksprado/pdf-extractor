@@ -8,7 +8,11 @@ from unidecode import unidecode
 from configs.tools.postgres import PostgreSQLManager 
 from configs.rules.notas import rules_dict
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.FileHandler("main.log"), logging.StreamHandler()],
+)
 
 
 class PDFDataExtractor:
@@ -26,82 +30,57 @@ class PDFDataExtractor:
         if df.shape[1] > 1:
             df = df.drop(df.columns[0], axis=1)
         
-        df= df.dropna(how='all')
+        df= df.dropna(axis=1,how='all')
         return df
 
-    @staticmethod
-    def fix_product_categories(df):
-        if df.shape[0] > 1:
-            second_line = df.iloc[1]
-            if len(second_line) != 1:
-                second_line = second_line[0].split(",")  # Quebra os valores da primeira coluna
-                if len(second_line) == 3:
-                    df["Subcategory"] = second_line[0].strip()
-                    df["Category"] = second_line[1].strip()
-                    df["Product_ID"] = second_line[2].strip()
-                else:
-                    df["Subcategory"] = None
-                    df["Category"] = None
-                    df["Product_ID"] = None
-        return df 
+    def get_data(self, t_areas, t_cols, fix)->pd.DataFrame:
+        try:
+            tables = camelot.read_pdf(
+                self.path,
+                pages=self.configs["pages"],
+                flavor=self.configs["flavor"],
+                table_areas=t_areas,
+                columns=t_cols,
+                # strip_text=self.configs["strip_text"],
+                password=self.configs["password"]
+                )
+            if not tables.n:
+                logging.warning(f"Nenhuma tabela encontrada no arquivo {self.file_name}")
+                return pd.DataFrame()  # Retorna um DataFrame vazio
 
-    @staticmethod
-    def fix_multiple_lines(df):
-        return df.apply(lambda col: col.dropna().astype(str).str.cat(sep=' '), axis=0).to_frame().T
+            table_content = [self.fix_header(page.df) if fix else page.df for page in tables]
 
-    @staticmethod
-    def pivot_lines_to_columns(df):
-        df.replace('', None, inplace=True)
-        df = df.dropna(axis=1, how='all')
-        df.columns = ['Key', 'Value']
-        df_pivoted = df.set_index('Key').T
-        df_pivoted.columns.name = None
-        return df_pivoted
+            result = pd.concat(table_content, ignore_index=True) if len(table_content) > 1 else table_content[0]
+            result = result.dropna(axis=1,how='all')
+            return result
+        except Exception as e:
+            logging.error(f"Error getting data {e} --- {self.file_name}")
 
-    def get_data(self, t_areas, t_cols, fix, fix_product =False, pivot=False):
-        tables = camelot.read_pdf(
-            self.path,
-            pages=self.configs["pages"],
-            flavor=self.configs["flavor"],
-            table_areas=t_areas,
-            columns=t_cols,
-            strip_text=self.configs["strip_text"],
-            passwords=self.configs["password"]
-            )
+    def add_infos(self, invoice_id_df, df):
+        try:
+            if invoice_id_df.empty or df.empty:
+                logging.warning(f"Dados insuficientes para adicionar informações no arquivo {self.file_name}")
+                return df  # Retorna o próprio DataFrame vazio
+            
+            invoice_id = invoice_id_df.iloc[0, 0]
 
-        # if fix is true then fix header for every page in every tables
-        if fix:
-            for page in tables:
-                table_content = self.fix_header(page.df)
-        
-        if pivot:
-            for page in tables:
-                table_content = self.pivot_lines_to_columns(page.df)
-        
-        if fix_product:
-            for page in tables:
-                table_content = self.fix_product_categories(page.df)    
-        
-        # if there is more than 1 table then add to the table_content if not return the first only
-        result = pd.concat(table_content, ignore_index=True) if len(table_content) > 1 else table_content[0]
-        
-        return result
+            df["invoice_id"] = invoice_id
+            df["created_at"] = pd.to_datetime("today")
+            return df
+        except Exception as e:
+            logging.error(f"Error adding infos {e} --- {self.file_name}")
 
 
     def save_csv(self, df, file_name):
+        if df is None or df.empty:
+            logging.warning(f"{file_name}.csv não foi salvo pois o DataFrame está vazio.")
+            return
+        
         if not os.path.exists(self.csv_path):
             os.makedirs(self.csv_path, exist_ok=True) 
         
         path = os.path.join(self.csv_path,f"{file_name}.csv")
         df.to_csv(path, sep=";", index=False)
-    
-    def add_infos(self, header, content):
-        infos = header.iloc[0]
-        df = pd.DataFrame([infos.values]*len(content), columns=header.columns)
-        content = pd.concat([content.reset_index(drop=True),df.reset_index(drop=True)], axis=1) 
-        content["created_at"] = pd.to_datetime("today")
-        return content
-        
     
     def sanitize_column_names(self, df):
         df.columns = df.columns.map(lambda x: unidecode(x))
@@ -119,30 +98,43 @@ class PDFDataExtractor:
             logging.info(f"Data inserted into {table_name}")
         except Exception as e:
             logging.error(e)
-        pass 
 
     def run(self):
         logging.info(f"Extracting data from {self.file_name}")
-        header = self.get_data(self.configs['header_tables_areas'], self.configs['header_tables_cols'], self.configs['header_fix'])
         
-        main = self.get_data(self.configs['table_areas'], self.configs['table_cols'], self.configs['fix'])
-        small = self.get_data(self.configs['small_table_areas'], self.configs['small_table_cols'], self.configs['small_fix'])
+        invoice_id = self.get_data(self.configs['invoice_area'], self.configs["invoice_columns"],self.configs["invoice_fix"])
         
-        main = self.add_infos(header,main)
-        if self.configs["small_sanitize"]:
-            small = self.sanitize_column_names(small)
+        order_id = self.get_data(self.configs['order_id_area'], self.configs["order_id_columns"], self.configs['order_id_fix'])
 
-        main = self.sanitize_columns_names(main)
-        small = self.sanitize_columns_names(small)
+        whom = self.get_data(self.configs['whom_area'], self.configs['whom_columns'], self.configs['whom_fix'])  
         
-        logging.info(f"Saving csv - {self.file_name}")
+        header = self.get_data(self.configs['header_areas'], self.configs['header_columns'], self.configs['header_fix'])
+        
+        main = self.get_data(self.configs['table_areas'], self.configs['table_columns'], self.configs['fix'])
+        
+        small = self.get_data(self.configs['small_table_areas'], self.configs['small_columns'], self.configs['small_fix'])
+        
+        whom = self.add_infos(invoice_id, whom) 
+        header = self.add_infos(invoice_id, header)
+        main = self.add_infos(invoice_id,  main)
+        small = self.add_infos(invoice_id, small)
+        order = self.add_infos(invoice_id, order_id)
+        
+        
+        self.save_csv(whom, f"{self.file_name}_whom") 
+        logging.info(f"Saved csv - {self.file_name}_whom")
+        
+        self.save_csv(header, f"{self.file_name}_header")
+        logging.info(f"Saved csv - {self.file_name}_header")
         
         self.save_csv(main, self.file_name)
+        logging.info(f"Saved csv - {self.file_name}")
+        
         self.save_csv(small, f"{self.file_name}_small")
-
-        logging.info(f"Sending to DB - {self.file_name}")
-        self.send_to_db(main, f"Fatura_{self.configs['name']}".lower())
-        self.send_to_db(small, f"Fatura_{self.configs['name']}_small".lower())
+        logging.info(f"Saved csv - {self.file_name}_small")
+        
+        self.save_csv(order, f"{self.file_name}_order")
+        logging.info(f"Saved csv - {self.file_name}_order")
         
         return {"main": main, "small": small}
 
